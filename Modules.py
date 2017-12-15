@@ -11,7 +11,7 @@ from math import*
 class TableBuild:
 
     def __init__(self, data):
-        self.authors, self.authorpub, self.publications, self.conferences, self.collaborations = self.indexer(data)
+        self.authors, self.authorpub, self.authorconf, self.publications, self.conferences, self.collaborations = self.indexer(data)
 
     def indexer(self, data):
         author_name = []
@@ -19,6 +19,9 @@ class TableBuild:
 
         authorpub_author = []
         authorpub_pub = []
+
+        authorconf_author = []
+        authorconf_conf = []
 
         pub_id = []
         pub_title = []
@@ -42,6 +45,9 @@ class TableBuild:
 
                 authorpub_author.append(str(author['author_id']))
                 authorpub_pub.append(str(paper['id_publication_int']))
+
+                authorconf_author.append(str(author['author_id']))
+                authorconf_conf.append(str(paper['id_conference_int']))
             
             pub_id.append(str(paper['id_publication_int']))
             pub_title.append(str(paper['title']))
@@ -50,23 +56,14 @@ class TableBuild:
             conf_id.append(str(paper['id_conference_int']))
             conf_name.append(str(paper['id_conference']))
 
-        # authors = pd.DataFrame({'id': author_id, 'name': author_name}).drop_duplicates('id')
-        # authorpub = pd.DataFrame({'author': authorpub_author, 'publication': authorpub_pub})
-        # publications = pd.DataFrame({'id': pub_id, 'title': pub_title, 'conference': pub_conf})
-        # conferences = pd.DataFrame({'id': conf_id, 'name': conf_name}).drop_duplicates()
-        # collaborations = pd.DataFrame({'author1': collab1, 'author2': collab2})
-
-        # collaborations['concat'] = collaborations.apply(lambda row: ''.join(sorted([row['author1'], row['author2']])), axis=1)
-        # collaborations = collaborations.drop_duplicates('concat')
-        # collaborations = collaborations.drop(columns='concat')
-
         authors = self.unique_rows(np.column_stack((author_id, author_name)))
         authorpub = np.column_stack((authorpub_author, authorpub_pub))
+        authorconf = self.unique_rows(np.column_stack((authorconf_author, authorconf_conf)))
         publications = np.column_stack((pub_id, pub_title, pub_conf))
         conferences = self.unique_rows(np.column_stack((conf_id, conf_name)))
         collaborations = self.unique_rows(np.column_stack((collab1, collab2)))
 
-        return authors, authorpub, publications, conferences, collaborations
+        return authors, authorpub, authorconf, publications, conferences, collaborations
 
     def unique_rows(self, a):
         a = np.ascontiguousarray(a)
@@ -80,13 +77,9 @@ class GraphBuild:
     def __init__(self, data):
         self.G = nx.Graph()
         self.db = TableBuild(data)
-        print(" %s seconds to build db" % (time.time() - start_time))
         self.set = self.getPapersList(self.db)
-        print(" %s seconds to index biblio" % (time.time() - start_time))
         self.nodeBuild()
-        print(" %s seconds to add nodes" % (time.time() - start_time))
         self.edgeBuild()
-        print(" %s seconds to add edges" % (time.time() - start_time))
 
     def nodeBuild(self):
         self.G.add_nodes_from([item[0] for item in self.db.authors])
@@ -116,20 +109,89 @@ class GraphBuild:
 
 class ConfQuery:
     
-    def __init__(self, G, conf):
-        self.G = G
+    def __init__(self, data, conf, name = False):
+        self.graph = GraphBuild(data)
         self.conf = conf
+        self.name = name
+        self.authors = []
+        self.G = nx.Graph()
+        self.query()
+
+    def findAuthors(self):
+        if self.name == False:
+            for item in self.graph.db.authorconf:
+                if item[1] == self.conf:
+                    self.authors.append(item[0])
+        else:
+            _id = [item[0] for item in self.graph.db.conferences if item[1] == self.conf]
+            _id = _id[0]
+            for item in self.graph.db.authorconf:
+                if item[1] == _id:
+                    self.authors.append(item[0])
+
+    def query(self):
+        self.findAuthors()
+        self.G = self.graph.G.subgraph(self.authors)
 
 
+class NeighborQuery:
+
+    def __init__(self, data, author, d, name = False):
+        self.graph = GraphBuild(data)
+        self.author = author
+        self.d = d
+        self.neighbors = []
+        self.name = name
+        self.G = nx.Graph()
+        self.query()
+
+    def query(self):
+        if self.name == True:
+            _id = [item[0] for item in self.graph.db.authors if item[1] == self.author]
+            self.author = _id[0]
+
+        current_nodes = [self.author]
+        new_nodes = []
+        self.neighbors.append(self.author)
+        for i in range(self.d):
+            for j in range(len(current_nodes)):
+                self.neighbors.extend(self.graph.G.neighbors(current_nodes[j]))
+                new_nodes.extend(self.graph.G.neighbors(current_nodes[j]))
+            current_nodes = new_nodes
+            new_nodes = []
+
+        self.neighbors = list(set(self.neighbors))
+        self.G = self.graph.G.subgraph(self.neighbors)
 
 
 start_time = time.time()
-pp = pprint.PrettyPrinter(indent=3)
-
 json_data = open("reduced_dblp.json").read()
-
 data = json.loads(json_data)
-print(" %s seconds to load data" % (time.time() - start_time))
 
-graph = GraphBuild(data)
-print(" %s seconds to execute full code" % (time.time() - start_time))
+typeofquery = input("Hi, welcome the DBLP dataset explorer.\n What kind of query do you want to execute ?\n - Write 'conf' for a Conference Query\n - Write 'neighbor' for a Neighbor Query\n - Write 'aris' for an Aris Query\n")
+
+if typeofquery == 'conf':
+    q = input("Which conference are you looking for ?")
+    n = input("Did you write the id or the name ? (id or name)")
+    if n == 'name':
+        confquery = ConfQuery(data, q, name = True)
+        nx.draw(confquery.G)
+        plt.show()
+    elif n == 'id':
+        confquery = ConfQuery(data, q)
+        nx.draw(confquery.G)
+        plt.show()
+
+if typeofquery == 'neighbor':
+    q = input("Which author are you looking for ? (the center of your graph)")
+    d = int(input("How deep should I search ? (number of edges)"))
+    n = input("Did you write the id or the name ? (id or name)")
+    if n == 'name':
+        neighquery = NeighborQuery(data, q, d, name = True)
+        nx.draw(neighquery.G)
+        plt.show()
+    if n == 'id':
+        neighquery = NeighborQuery(data, q, d)
+        nx.draw(neighquery.G)
+        plt.show()
+        
