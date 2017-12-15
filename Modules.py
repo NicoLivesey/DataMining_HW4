@@ -7,28 +7,6 @@ import time
 import matplotlib.pyplot as plt
 from math import*
 
-# class Paper:
-
-#     def __init__(self, id, title, conf, authors):
-#         self.title = title     #data['title']
-#         self.id = id           #data['id_publication_int']
-#         self.conf = conf       #data['id_conference_int']
-#         self.authors = authors #[x[''author_id''] for x in data['authors']]
-
-# class Author:
-
-#     def __init__(self, id, name):
-#         self.id = id
-#         self.name = name
-#         self.papers = []
-
-# class Conference:
-
-#     def __init__(self, id, name):
-#         self.id = id
-#         self.name = name
-#         self.authors = []
-
 
 class TableBuild:
 
@@ -72,17 +50,29 @@ class TableBuild:
             conf_id.append(str(paper['id_conference_int']))
             conf_name.append(str(paper['id_conference']))
 
-        authors = pd.DataFrame({'id': author_id, 'name': author_name}).drop_duplicates('id')
-        authorpub = pd.DataFrame({'author': authorpub_author, 'publication': authorpub_pub})
-        publications = pd.DataFrame({'id': pub_id, 'title': pub_title, 'conference': pub_conf})
-        conferences = pd.DataFrame({'id': conf_id, 'name': conf_name}).drop_duplicates()
-        collaborations = pd.DataFrame({'author1': collab1, 'author2': collab2})
+        # authors = pd.DataFrame({'id': author_id, 'name': author_name}).drop_duplicates('id')
+        # authorpub = pd.DataFrame({'author': authorpub_author, 'publication': authorpub_pub})
+        # publications = pd.DataFrame({'id': pub_id, 'title': pub_title, 'conference': pub_conf})
+        # conferences = pd.DataFrame({'id': conf_id, 'name': conf_name}).drop_duplicates()
+        # collaborations = pd.DataFrame({'author1': collab1, 'author2': collab2})
 
-        collaborations['concat'] = collaborations.apply(lambda row: ''.join(sorted([row['author1'], row['author2']])), axis=1)
-        collaborations = collaborations.drop_duplicates('concat')
-        collaborations = collaborations.drop(columns='concat')
+        # collaborations['concat'] = collaborations.apply(lambda row: ''.join(sorted([row['author1'], row['author2']])), axis=1)
+        # collaborations = collaborations.drop_duplicates('concat')
+        # collaborations = collaborations.drop(columns='concat')
+
+        authors = self.unique_rows(np.column_stack((author_id, author_name)))
+        authorpub = np.column_stack((authorpub_author, authorpub_pub))
+        publications = np.column_stack((pub_id, pub_title, pub_conf))
+        conferences = self.unique_rows(np.column_stack((conf_id, conf_name)))
+        collaborations = self.unique_rows(np.column_stack((collab1, collab2)))
 
         return authors, authorpub, publications, conferences, collaborations
+
+    def unique_rows(self, a):
+        a = np.ascontiguousarray(a)
+        unique_a = np.unique(a.view([('', a.dtype)]*a.shape[1]))
+
+        return unique_a.view(a.dtype).reshape((unique_a.shape[0], a.shape[1]))
 
 
 class GraphBuild:
@@ -90,33 +80,45 @@ class GraphBuild:
     def __init__(self, data):
         self.G = nx.Graph()
         self.db = TableBuild(data)
+        print(" %s seconds to build db" % (time.time() - start_time))
         self.set = self.getPapersList(self.db)
+        print(" %s seconds to index biblio" % (time.time() - start_time))
         self.nodeBuild()
+        print(" %s seconds to add nodes" % (time.time() - start_time))
         self.edgeBuild()
+        print(" %s seconds to add edges" % (time.time() - start_time))
 
     def nodeBuild(self):
-        self.G.add_nodes_from(self.db.authors['id'].tolist())
+        self.G.add_nodes_from([item[0] for item in self.db.authors])
 
     def edgeBuild(self):
-        for index, row in enumerate(self.db.collaborations.values):
-            weight = 1 - self.jaccard_similarity(self.set[row[0]], self.set[row[1]])
-            self.G.add_edge(row[0], row[1], weight = weight)
+        for item in self.db.collaborations:
+            weight = 1 - self.jaccard_similarity(self.set[item[0]], self.set[item[1]])
+            self.G.add_edge(item[0], item[1], weight = weight)
 
     def jaccard_similarity(self, x, y):
-        intersection_cardinality = len(set.intersection(*[set(x), set(y)]))
-        union_cardinality = len(set.union(*[set(x), set(y)]))
+        intersection = len(set.intersection(*[set(x), set(y)]))
+        union = len(set.union(*[set(x), set(y)]))
         
-        return intersection_cardinality/float(union_cardinality)
+        return intersection/float(union)
 
     def getPapersList(self, db):
         d = {}
-        for index, row in enumerate(db.authors.values):
-            d[row[0]] = []
-            for index2, row2 in enumerate(db.authorpub[db.authorpub['author'] == row[0]].values):
-                d[row[0]].append(row2[1])
+
+        for row in self.db.authorpub:
+            if row[0] in d:
+                d[row[0]].append(row[1])
+            else:
+                d[row[0]] = [row[1]]
 
         return d
 
+
+class ConfQuery:
+    
+    def __init__(self, G, conf):
+        self.G = G
+        self.conf = conf
 
 
 
@@ -130,8 +132,4 @@ data = json.loads(json_data)
 print(" %s seconds to load data" % (time.time() - start_time))
 
 graph = GraphBuild(data)
-
 print(" %s seconds to execute full code" % (time.time() - start_time))
-
-
-# pp.pprint(data[0:3])
