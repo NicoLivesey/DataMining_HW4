@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from pqdict import minpq
 from math import*
 
 
@@ -56,16 +57,16 @@ class TableBuild:
             conf_id.append(str(paper['id_conference_int']))
             conf_name.append(str(paper['id_conference']))
 
-        authors = self.unique_rows(np.column_stack((author_id, author_name)))
+        authors = self.uniqueRows(np.column_stack((author_id, author_name)))
         authorpub = np.column_stack((authorpub_author, authorpub_pub))
-        authorconf = self.unique_rows(np.column_stack((authorconf_author, authorconf_conf)))
+        authorconf = self.uniqueRows(np.column_stack((authorconf_author, authorconf_conf)))
         publications = np.column_stack((pub_id, pub_title, pub_conf))
-        conferences = self.unique_rows(np.column_stack((conf_id, conf_name)))
-        collaborations = self.unique_rows(np.column_stack((collab1, collab2)))
+        conferences = self.uniqueRows(np.column_stack((conf_id, conf_name)))
+        collaborations = self.uniqueRows(np.column_stack((collab1, collab2)))
 
         return authors, authorpub, authorconf, publications, conferences, collaborations
 
-    def unique_rows(self, a):
+    def uniqueRows(self, a):
         a = np.ascontiguousarray(a)
         unique_a = np.unique(a.view([('', a.dtype)]*a.shape[1]))
 
@@ -77,7 +78,7 @@ class GraphBuild:
     def __init__(self, data):
         self.G = nx.Graph()
         self.db = TableBuild(data)
-        self.set = self.getPapersList(self.db)
+        self.set = self.getPapersList()
         self.nodeBuild()
         self.edgeBuild()
 
@@ -86,16 +87,16 @@ class GraphBuild:
 
     def edgeBuild(self):
         for item in self.db.collaborations:
-            weight = 1 - self.jaccard_similarity(self.set[item[0]], self.set[item[1]])
+            weight = 1 - self.jaccardSimilarity(self.set[item[0]], self.set[item[1]])
             self.G.add_edge(item[0], item[1], weight = weight)
 
-    def jaccard_similarity(self, x, y):
+    def jaccardSimilarity(self, x, y):
         intersection = len(set.intersection(*[set(x), set(y)]))
         union = len(set.union(*[set(x), set(y)]))
         
         return intersection/float(union)
 
-    def getPapersList(self, db):
+    def getPapersList(self):
         d = {}
 
         for row in self.db.authorpub:
@@ -164,6 +165,48 @@ class NeighborQuery:
         self.G = self.graph.G.subgraph(self.neighbors)
 
 
+class ArisQuery:
+
+    def __init__(self, data, author):
+        self.graph = GraphBuild(data)
+        self.author = author
+        self.weight = 0
+        self.shortestPath()
+
+
+    def shortestPath(self):
+
+        if nx.has_path(self.graph.G, self.author, '256176'):
+            self.weight = self.distanceCalcul()
+        else: self.weight = -1
+            
+
+    def distanceCalcul(self):
+        length = {} 
+        end = '256176'   
+
+        pq = minpq()
+        for node in nx.node_connected_component(self.graph.G, self.author):
+            if node == self.author:
+                pq[node] = 0
+            else:
+                pq[node] = float('inf')
+                
+
+        for node, min_dist in pq.popitems():
+            length[node] = min_dist
+            if node == end:
+                break
+
+            for neighbor in self.graph.G.neighbors(node):
+                if neighbor in pq:
+                    new_length = length[node] + self.graph.G[node][neighbor]['weight']
+                    if new_length < pq[neighbor]:
+                        pq[neighbor] = new_length
+
+        return length[end]
+
+
 start_time = time.time()
 json_data = open("reduced_dblp.json").read()
 data = json.loads(json_data)
@@ -182,7 +225,7 @@ if typeofquery == 'conf':
         nx.draw(confquery.G)
         plt.show()
 
-if typeofquery == 'neighbor':
+elif typeofquery == 'neighbor':
     q = input("Which author are you looking for ? (the center of your graph)")
     d = int(input("How deep should I search ? (number of edges)"))
     n = input("Did you write the id or the name ? (id or name)")
@@ -194,4 +237,15 @@ if typeofquery == 'neighbor':
         neighquery = NeighborQuery(data, q, d)
         nx.draw(neighquery.G)
         plt.show()
-        
+
+elif typeofquery == 'aris':
+    q = input("Which author are you looking for ? (connected to Aris Anagnostopoulos)(you have to give the id)")
+    a = ArisQuery(data, q)
+    if a.weight == 0:
+        print("You just asked for Aris Anagnostopoulos himself, it does not make sense to me")
+    elif a.weight == -1:
+        print("Sorry but this author is not connected to Aris Anagnostopoulos at all")
+    else:
+        print("The distance of their connection is " + str(a.weight))
+
+else: print("This query is not valid.")
