@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from heapq import heappush, heappop
 from pqdict import minpq
 from math import*
 
@@ -206,12 +207,63 @@ class ArisQuery:
 
         return length[end]
 
+class Group:
+
+    def __init__(self, data, nodes):
+        self.graph = GraphBuild(data)
+        self.nodes = nodes
+        self.groups = self.groupNumber()
+
+    def groupNumber(self):
+        G = self.graph.G
+        GROUP_NUMBER = {}
+        dijkstra_list = []  # list of dikstra dictionaries for each author in the input list
+        for author in self.nodes:
+            dijkstra_list.append(self.Dijkstra(G, author))
+        for node in G.nodes():
+            groups = []
+            try:
+                for i in range(len(dijkstra_list)):
+                    # for tree in dijkstra_list:
+                    shortest_path = dijkstra_list[i][node]
+                    if shortest_path != None:
+                        groups.append((shortest_path, self.nodes[i]))
+            except:  # for the isolated nodes
+                pass
+            if len(groups) == 0:
+                GROUP_NUMBER[node] = "This node is not connected to any of these nodes."
+                # print("node "+str(nodeG)+" isn't connected to any of these nodes")
+            else:
+                result = min(groups)
+                GROUP_NUMBER[node] = (result[1], result[0])
+                # print("the groupnumber for node "+str(nodeG)+" is "+str(result[1])+" with distance "+ str(result[0]))
+        return GROUP_NUMBER
+
+    def Dijkstra(self, graph, start):
+        # A = [None] * len(graph)
+        A = {}
+        for node in graph.nodes():
+            A[node] = None
+        queue = [(0, start)]
+        while queue:
+            path_len, v = heappop(queue)
+            if A[v] is None:  # v is unvisited
+                A[v] = path_len
+                for w, edge_len in graph[v].items():
+                    if A[w] is None:
+                        heappush(queue, (path_len + edge_len["weight"], w))
+
+        # to give same result as original, assign zero distance to unreachable vertices
+        return A
+        # return [0 if x is None else x for x in A]
+
+
 
 start_time = time.time()
 json_data = open("reduced_dblp.json").read()
 data = json.loads(json_data)
 
-typeofquery = input("Hi, welcome the DBLP dataset explorer.\n What kind of query do you want to execute ?\n - Write 'conf' for a Conference Query\n - Write 'neighbor' for a Neighbor Query\n - Write 'aris' for an Aris Query\n")
+typeofquery = input("Hi, welcome the DBLP dataset explorer.\n What kind of query do you want to execute ?\n - Write 'conf' for a Conference Query\n - Write 'neighbor' for a Neighbor Query\n - Write 'aris' for an Aris Query\n - Write 'group' to build groups\n")
 
 if typeofquery == 'conf':
     q = input("Which conference are you looking for ?")
@@ -248,4 +300,14 @@ elif typeofquery == 'aris':
     else:
         print("The distance of their connection is " + str(a.weight))
 
+elif typeofquery == 'group':
+    inp = list(input("Insert author id or enter to stop: ").split())
+    if len(inp) > 21:
+        print("Too many nodes!")
+    else:
+        g = Group(data, inp)
+
 else: print("This query is not valid.")
+
+
+
